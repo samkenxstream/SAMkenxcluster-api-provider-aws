@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,16 +21,20 @@ import (
 	"fmt"
 
 	awsclient "github.com/aws/aws-sdk-go/aws/client"
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"k8s.io/klog/v2/klogr"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/controlplane/eks/api/v1beta1"
-	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/exp/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/throttle"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2"
+	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/throttle"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/logger"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	expclusterv1 "sigs.k8s.io/cluster-api/exp/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util/conditions"
@@ -40,7 +44,7 @@ import (
 // ManagedMachinePoolScopeParams defines the input parameters used to create a new Scope.
 type ManagedMachinePoolScopeParams struct {
 	Client             client.Client
-	Logger             *logr.Logger
+	Logger             *logger.Logger
 	Cluster            *clusterv1.Cluster
 	ControlPlane       *ekscontrolplanev1.AWSManagedControlPlane
 	ManagedMachinePool *expinfrav1.AWSManagedMachinePool
@@ -51,6 +55,8 @@ type ManagedMachinePoolScopeParams struct {
 
 	EnableIAM            bool
 	AllowAdditionalRoles bool
+
+	InfraCluster EC2Scope
 }
 
 // NewManagedMachinePoolScope creates a new Scope from the supplied parameters.
@@ -66,8 +72,8 @@ func NewManagedMachinePoolScope(params ManagedMachinePoolScopeParams) (*ManagedM
 		return nil, errors.New("failed to generate new scope from nil ManagedMachinePool")
 	}
 	if params.Logger == nil {
-		log := klogr.New()
-		params.Logger = &log
+		log := klog.Background()
+		params.Logger = logger.NewLogger(log)
 	}
 
 	managedScope := &ManagedControlPlaneScope{
@@ -77,24 +83,31 @@ func NewManagedMachinePoolScope(params ManagedMachinePoolScopeParams) (*ManagedM
 		ControlPlane:   params.ControlPlane,
 		controllerName: params.ControllerName,
 	}
-	session, serviceLimiters, err := sessionForClusterWithRegion(params.Client, managedScope, params.ControlPlane.Spec.Region, params.Endpoints, *params.Logger)
+	session, serviceLimiters, err := sessionForClusterWithRegion(params.Client, managedScope, params.ControlPlane.Spec.Region, params.Endpoints, params.Logger)
 	if err != nil {
 		return nil, errors.Errorf("failed to create aws session: %v", err)
 	}
 
-	helper, err := patch.NewHelper(params.ManagedMachinePool, params.Client)
+	ammpHelper, err := patch.NewHelper(params.ManagedMachinePool, params.Client)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to init patch helper")
+		return nil, errors.Wrap(err, "failed to init AWSManagedMachinePool patch helper")
+	}
+	mpHelper, err := patch.NewHelper(params.MachinePool, params.Client)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to init MachinePool patch helper")
 	}
 
 	return &ManagedMachinePoolScope{
-		Logger:               *params.Logger,
-		Client:               params.Client,
+		Logger:                     *params.Logger,
+		Client:                     params.Client,
+		patchHelper:                ammpHelper,
+		capiMachinePoolPatchHelper: mpHelper,
+
 		Cluster:              params.Cluster,
 		ControlPlane:         params.ControlPlane,
 		ManagedMachinePool:   params.ManagedMachinePool,
 		MachinePool:          params.MachinePool,
-		patchHelper:          helper,
+		EC2Scope:             params.InfraCluster,
 		session:              session,
 		serviceLimiters:      serviceLimiters,
 		controllerName:       params.ControllerName,
@@ -105,14 +118,16 @@ func NewManagedMachinePoolScope(params ManagedMachinePoolScopeParams) (*ManagedM
 
 // ManagedMachinePoolScope defines the basic context for an actuator to operate upon.
 type ManagedMachinePoolScope struct {
-	logr.Logger
-	Client      client.Client
-	patchHelper *patch.Helper
+	logger.Logger
+	client.Client
+	patchHelper                *patch.Helper
+	capiMachinePoolPatchHelper *patch.Helper
 
 	Cluster            *clusterv1.Cluster
 	ControlPlane       *ekscontrolplanev1.AWSManagedControlPlane
 	ManagedMachinePool *expinfrav1.AWSManagedMachinePool
 	MachinePool        *expclusterv1.MachinePool
+	EC2Scope           EC2Scope
 
 	session         awsclient.ConfigProvider
 	serviceLimiters throttle.ServiceLimiters
@@ -158,11 +173,14 @@ func (s *ManagedMachinePoolScope) IdentityRef() *infrav1.AWSIdentityReference {
 // AdditionalTags returns AdditionalTags from the scope's ManagedMachinePool
 // The returned value will never be nil.
 func (s *ManagedMachinePoolScope) AdditionalTags() infrav1.Tags {
-	if s.ManagedMachinePool.Spec.AdditionalTags == nil {
-		s.ManagedMachinePool.Spec.AdditionalTags = infrav1.Tags{}
-	}
+	tags := make(infrav1.Tags)
 
-	return s.ManagedMachinePool.Spec.AdditionalTags.DeepCopy()
+	// Start with the cluster-wide tags...
+	tags.Merge(s.EC2Scope.AdditionalTags())
+	// ... and merge in the Machine's
+	tags.Merge(s.ManagedMachinePool.Spec.AdditionalTags)
+
+	return tags
 }
 
 // RoleName returns the node group role name.
@@ -246,6 +264,14 @@ func (s *ManagedMachinePoolScope) PatchObject() error {
 		}})
 }
 
+// PatchCAPIMachinePoolObject persists the capi machinepool configuration and status.
+func (s *ManagedMachinePoolScope) PatchCAPIMachinePoolObject(ctx context.Context) error {
+	return s.capiMachinePoolPatchHelper.Patch(
+		ctx,
+		s.MachinePool,
+	)
+}
+
 // Close closes the current scope persisting the control plane configuration and status.
 func (s *ManagedMachinePoolScope) Close() error {
 	return s.PatchObject()
@@ -280,4 +306,88 @@ func (s *ManagedMachinePoolScope) KubernetesClusterName() string {
 // NodegroupName is the name of the EKS nodegroup.
 func (s *ManagedMachinePoolScope) NodegroupName() string {
 	return s.ManagedMachinePool.Spec.EKSNodegroupName
+}
+
+func (s *ManagedMachinePoolScope) Name() string {
+	return s.ManagedMachinePool.Name
+}
+
+func (s *ManagedMachinePoolScope) Namespace() string {
+	return s.ManagedMachinePool.Namespace
+}
+
+func (s *ManagedMachinePoolScope) GetRawBootstrapData() ([]byte, error) {
+	if s.MachinePool.Spec.Template.Spec.Bootstrap.DataSecretName == nil {
+		return nil, errors.New("error retrieving bootstrap data: linked Machine's bootstrap.dataSecretName is nil")
+	}
+
+	secret := &corev1.Secret{}
+	key := types.NamespacedName{Namespace: s.Namespace(), Name: *s.MachinePool.Spec.Template.Spec.Bootstrap.DataSecretName}
+
+	if err := s.Client.Get(context.TODO(), key, secret); err != nil {
+		return nil, errors.Wrapf(err, "failed to retrieve bootstrap data secret for AWSManagedMachinePool %s/%s", s.Namespace(), s.Name())
+	}
+
+	value, ok := secret.Data["value"]
+	if !ok {
+		return nil, errors.New("error retrieving bootstrap data: secret value key is missing")
+	}
+
+	return value, nil
+}
+
+func (s *ManagedMachinePoolScope) GetObjectMeta() *metav1.ObjectMeta {
+	return &s.ManagedMachinePool.ObjectMeta
+}
+
+func (s *ManagedMachinePoolScope) GetSetter() conditions.Setter {
+	return s.ManagedMachinePool
+}
+
+func (s *ManagedMachinePoolScope) GetEC2Scope() EC2Scope {
+	return s.EC2Scope
+}
+
+func (s *ManagedMachinePoolScope) IsEKSManaged() bool {
+	return true
+}
+
+func (s *ManagedMachinePoolScope) GetLaunchTemplateIDStatus() string {
+	if s.ManagedMachinePool.Status.LaunchTemplateID != nil {
+		return *s.ManagedMachinePool.Status.LaunchTemplateID
+	} else {
+		return ""
+	}
+}
+
+func (s *ManagedMachinePoolScope) SetLaunchTemplateIDStatus(id string) {
+	s.ManagedMachinePool.Status.LaunchTemplateID = &id
+}
+
+func (s *ManagedMachinePoolScope) GetLaunchTemplateLatestVersionStatus() string {
+	if s.ManagedMachinePool.Status.LaunchTemplateVersion != nil {
+		return *s.ManagedMachinePool.Status.LaunchTemplateVersion
+	} else {
+		return ""
+	}
+}
+
+func (s *ManagedMachinePoolScope) SetLaunchTemplateLatestVersionStatus(version string) {
+	s.ManagedMachinePool.Status.LaunchTemplateVersion = &version
+}
+
+func (s *ManagedMachinePoolScope) GetLaunchTemplate() *expinfrav1.AWSLaunchTemplate {
+	return s.ManagedMachinePool.Spec.AWSLaunchTemplate
+}
+
+func (s *ManagedMachinePoolScope) GetMachinePool() *expclusterv1.MachinePool {
+	return s.MachinePool
+}
+
+func (s *ManagedMachinePoolScope) LaunchTemplateName() string {
+	return fmt.Sprintf("%s-%s", s.ControlPlane.Name, s.ManagedMachinePool.Name)
+}
+
+func (s *ManagedMachinePoolScope) GetRuntimeObject() runtime.Object {
+	return s.ManagedMachinePool
 }

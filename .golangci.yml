@@ -10,6 +10,7 @@ linters:
     - errorlint
     - exhaustive
     - exhaustivestruct
+    - exhaustruct
     - forcetypeassert
     - forbidigo
     - funlen
@@ -28,9 +29,12 @@ linters:
     - lll
     - makezero
     - maligned
+    - musttag
     - nestif
     - nilnil
     - nlreturn
+    - nonamedreturns
+    - nosnakecase
     - paralleltest
     - promlinter
     - scopelint
@@ -43,6 +47,11 @@ linters:
     - wastedassign
     - wrapcheck
     - wsl
+    - deadcode
+    - ifshort
+    - structcheck
+    - varcheck
+    - interfacebloat
 
 linters-settings:
   # Restrict revive to exported.
@@ -53,14 +62,22 @@ linters-settings:
     rules:
       - name: exported
         severity: warning
-  ifshort:
-    # Maximum length of variable declaration measured in number of characters, after which linter won't suggest using short syntax.
-    max-decl-chars: 50
   gci:
     sections:
       - standard
       - default
       - prefix(sigs.k8s.io/cluster-api)
+  ginkgolinter:
+    # Suppress the wrong length assertion warning.
+    suppress-len-assertion: true
+    # Suppress the wrong nil assertion warning.
+    suppress-nil-assertion: false
+    # Suppress the wrong error assertion warning.
+    suppress-err-assertion: true
+  gosec:
+    excludes:
+      - G307 # Deferring unsafe method "Close" on type "\*os.File"
+      - G108 # Profiling endpoint is automatically exposed on /debug/pprof
   importas:
     no-unaliased: false
     alias:
@@ -80,39 +97,31 @@ linters-settings:
         alias: utilconversion
       - pkg: k8s.io/apimachinery/pkg/conversion
         alias: apiconversion
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/api/v1beta1
+      - pkg: sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2
         alias: infrav1
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/exp/api/v1alpha3
-        alias: expinfrav1alpha3
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/exp/api/v1alpha4
-        alias: expinfrav1alpha4
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/exp/api/v1beta1
+      - pkg: sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta1
+        alias: infrav1beta1
+      - pkg: sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta1
+        alias: expinfrav1beta1
+      - pkg: sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2
         alias: expinfrav1
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/api/v1alpha4
-        alias: infrav1alpha4
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/api/v1alpha3
-        alias: infrav1alpha3
       - pkg: k8s.io/client-go/kubernetes/scheme
         alias: cgscheme
       - pkg: k8s.io/client-go/tools/record
         alias: cgrecord
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/bootstrap/eks/api/v1alpha3
-        alias: eksbootstrapv1alpha3
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/bootstrap/eks/api/v1alpha4
-        alias: eksbootstrapv1alpha4
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/bootstrap/eks/api/v1beta1
+      - pkg: sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/api/v1beta1
+        alias: eksbootstrapv1beta1
+      - pkg: sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/api/v1beta2
         alias: eksbootstrapv1
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/controlplane/eks/api/v1alpha3
-        alias: ekscontrolplanev1alpha3
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/controlplane/eks/api/v1alpha4
-        alias: ekscontrolplanev1alpha4
-      - pkg: sigs.k8s.io/cluster-api-provider-aws/controlplane/eks/api/v1beta1
+      - pkg: sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta1
+        alias: ekscontrolplanev1beta1
+      - pkg: sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2
         alias: ekscontrolplanev1
-      - pkg: "sigs.k8s.io/cluster-api-provider-aws/bootstrap/eks/controllers"
+      - pkg: "sigs.k8s.io/cluster-api-provider-aws/v2/bootstrap/eks/controllers"
         alias: eksbootstrapcontrollers
-      - pkg: "sigs.k8s.io/cluster-api-provider-aws/controlplane/eks/controllers"
+      - pkg: "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/controllers"
         alias: ekscontrolplanecontrollers
-      - pkg: "sigs.k8s.io/cluster-api-provider-aws/exp/controllers"
+      - pkg: "sigs.k8s.io/cluster-api-provider-aws/v2/exp/controllers"
         alias: expcontrollers
       - pkg: "k8s.io/apimachinery/pkg/runtime"
         alias: runtime
@@ -120,10 +129,6 @@ linters-settings:
         alias: runtimeserializer
       - pkg: "k8s.io/apimachinery/pkg/runtime/serializer/yaml"
         alias: yamlserializer
-      - pkg:  "sigs.k8s.io/cluster-api/api/v1alpha3"
-        alias: clusterv1alpha3
-      - pkg:  "sigs.k8s.io/cluster-api/api/v1alpha4"
-        alias: clusterv1alpha4
       - pkg: "sigs.k8s.io/cluster-api/api/v1beta1"
         alias: clusterv1
       - pkg: "sigs.k8s.io/cluster-api/util/defaulting"
@@ -136,9 +141,9 @@ linters-settings:
         alias: logf
       - pkg: "github.com/google/gofuzz"
         alias: fuzz
-      - pkg: "sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/logs"
+      - pkg: "sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/logs"
         alias: awslogs
-      - pkg: "sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/metrics"
+      - pkg: "sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/metrics"
         alias: awsmetrics
       - pkg: "sigs.k8s.io/cluster-api/errors"
         alias: capierrors
@@ -157,9 +162,9 @@ linters-settings:
       - pkg: "sigs.k8s.io/cluster-api/exp/api/v1beta1"
         alias: expclusterv1
   staticcheck:
-    go: "1.17"
+    go: "1.19"
   stylecheck:
-    go: "1.17"
+    go: "1.19"
 issues:
   max-same-issues: 0
   max-issues-per-linter: 0
@@ -205,7 +210,7 @@ issues:
     - linters:
       - godot
       text: "Comment should end in a period"
-      path: "(.*)/(v1alpha3|v1alpha4|v1alpha1)/(.*)types.go"
+      path: "(.*)/(v1beta1|v1beta2)/(.*)types.go"
     - linters:
       - errcheck
       text: Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*print(f|ln)?|os\.(Un)?Setenv). is not checked

@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -80,11 +80,11 @@ const (
 )
 
 // PolicyDocument represents an AWS IAM policy document, and can be
-// converted into JSON using "sigs.k8s.io/cluster-api-provider-aws/cmd/clusterawsadm/converters".
+// converted into JSON using "sigs.k8s.io/cluster-api-provider-aws/v2/cmd/clusterawsadm/converters".
 type PolicyDocument struct {
-	Version   string
-	Statement Statements
-	ID        string `json:"Id,omitempty"`
+	Version   string     `json:"Version,omitempty"`
+	Statement Statements `json:"Statement,omitempty"`
+	ID        string     `json:"Id,omitempty"`
 }
 
 // StatementEntry represents each "statement" block in an AWS IAM policy document.

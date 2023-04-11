@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -86,7 +86,7 @@ func (t Tags) Validate() []*field.Error {
 	const maxUserTagsAllowed = 50
 	var errs field.ErrorList
 	var userTagCount = len(t)
-	re := regexp.MustCompile(`^[a-zA-Z0-9\\s\_\.\:\=\+\-\@\/]*$`)
+	re := regexp.MustCompile(`^[a-zA-Z0-9\s\_\.\:\=\+\-\@\/]*$`)
 
 	for k, v := range t {
 		if len(k) < 1 {

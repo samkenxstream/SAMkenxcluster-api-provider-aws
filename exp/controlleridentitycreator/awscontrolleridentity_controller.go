@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,12 +18,12 @@ package controlleridentitycreator
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -31,10 +31,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/controlplane/eks/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-aws/feature"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/scope"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/feature"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/scope"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/logger"
 	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
@@ -49,7 +50,7 @@ type AWSControllerIdentityReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=awsclustercontrolleridentities,verbs=get;list;watch;create
 
 func (r *AWSControllerIdentityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := ctrl.LoggerFrom(ctx)
+	log := logger.FromContext(ctx)
 
 	var identityRef *infrav1.AWSIdentityReference
 
@@ -61,10 +62,10 @@ func (r *AWSControllerIdentityReconciler) Reconcile(ctx context.Context, req ctr
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
-		log.V(4).Info("AWSCluster not found, trying AWSManagedControlPlane")
+		log.Trace("AWSCluster not found, trying AWSManagedControlPlane")
 		clusterFound = false
 	} else {
-		log.V(4).Info("Found identityRef on AWSCluster")
+		log.Trace("Found identityRef on AWSCluster")
 		identityRef = awsCluster.Spec.IdentityRef
 	}
 
@@ -73,16 +74,16 @@ func (r *AWSControllerIdentityReconciler) Reconcile(ctx context.Context, req ctr
 		awsControlPlane := &ekscontrolplanev1.AWSManagedControlPlane{}
 		if err := r.Client.Get(ctx, req.NamespacedName, awsControlPlane); err != nil {
 			if apierrors.IsNotFound(err) {
-				log.V(4).Info("AWSManagedMachinePool not found, no identityRef so no action taken")
+				log.Trace("AWSManagedMachinePool not found, no identityRef so no action taken")
 				return ctrl.Result{}, nil
 			}
 			return reconcile.Result{}, err
 		}
-		log.V(4).Info("Found identityRef on AWSManagedControlPlane")
+		log.Trace("Found identityRef on AWSManagedControlPlane")
 		identityRef = awsControlPlane.Spec.IdentityRef
 	}
 
-	log = log.WithValues("cluster", req.Name)
+	log = log.WithValues("cluster", klog.KObj(awsCluster))
 	if identityRef == nil {
 		log.Info("IdentityRef is nil, skipping reconciliation")
 		return ctrl.Result{Requeue: true}, nil
@@ -91,7 +92,7 @@ func (r *AWSControllerIdentityReconciler) Reconcile(ctx context.Context, req ctr
 	// If identity type is not AWSClusterControllerIdentity, then no need to create AWSClusterControllerIdentity singleton.
 	if identityRef.Kind == infrav1.ClusterRoleIdentityKind ||
 		identityRef.Kind == infrav1.ClusterStaticIdentityKind {
-		log.V(4).Info("Cluster does not use AWSClusterControllerIdentity as identityRef, skipping new instance creation")
+		log.Trace("Cluster does not use AWSClusterControllerIdentity as identityRef, skipping new instance creation")
 		return ctrl.Result{}, nil
 	}
 
@@ -119,8 +120,7 @@ func (r *AWSControllerIdentityReconciler) Reconcile(ctx context.Context, req ctr
 				},
 			},
 		}
-		err := r.Create(ctx, controllerIdentity)
-		if err != nil {
+		if err := r.Create(ctx, controllerIdentity); err != nil {
 			if apierrors.IsAlreadyExists(err) {
 				return reconcile.Result{}, nil
 			}
@@ -135,7 +135,7 @@ func (r *AWSControllerIdentityReconciler) SetupWithManager(ctx context.Context, 
 	controller := ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1.AWSCluster{}).
 		WithOptions(options).
-		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(ctrl.LoggerFrom(ctx), r.WatchFilterValue))
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(logger.FromContext(ctx).GetLogger(), r.WatchFilterValue))
 
 	if feature.Gates.Enabled(feature.EKS) {
 		controller.Watches(
@@ -150,7 +150,7 @@ func (r *AWSControllerIdentityReconciler) SetupWithManager(ctx context.Context, 
 func (r *AWSControllerIdentityReconciler) managedControlPlaneMap(o client.Object) []ctrl.Request {
 	managedControlPlane, ok := o.(*ekscontrolplanev1.AWSManagedControlPlane)
 	if !ok {
-		panic(fmt.Sprintf("Expected a managedControlPlane but got a %T", o))
+		klog.Errorf("Expected a managedControlPlane but got a %T", o)
 	}
 
 	return []ctrl.Request{

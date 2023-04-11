@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -47,11 +47,10 @@ type EKSConfigSpec struct {
 	// +optional
 	UseMaxPods *bool `json:"useMaxPods,omitempty"`
 
-	// TODO(richardcase): this can be uncommented when we get to the ipv6/dual-stack implementation
 	// ServiceIPV6Cidr is the ipv6 cidr range of the cluster. If this is specified then
 	// the ip family will be set to ipv6.
 	// +optional
-	// ServiceIPV6Cidr *string `json:"serviceIPV6Cidr,omitempty"`
+	ServiceIPV6Cidr *string `json:"serviceIPV6Cidr,omitempty"`
 }
 
 // PauseContainer contains details of pause container.
@@ -90,7 +89,6 @@ type EKSConfigStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=eksconfigs,scope=Namespaced,categories=cluster-api,shortName=eksc
-// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.ready",description="Bootstrap configuration is ready"
 // +kubebuilder:printcolumn:name="DataSecretName",type="string",JSONPath=".status.dataSecretName",description="Name of Secret containing bootstrap data"

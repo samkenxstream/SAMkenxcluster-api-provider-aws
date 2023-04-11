@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,8 +20,8 @@ import (
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	utilpointer "k8s.io/utils/pointer"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	iamv1 "sigs.k8s.io/cluster-api-provider-aws/iam/api/v1beta1"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	iamv1 "sigs.k8s.io/cluster-api-provider-aws/v2/iam/api/v1beta1"
 )
 
 const (
@@ -49,7 +49,7 @@ func SetDefaults_BootstrapUser(obj *BootstrapUser) { //nolint:golint,stylecheck
 // SetDefaults_AWSIAMConfigurationSpec is used by defaulter-gen.
 func SetDefaults_AWSIAMConfigurationSpec(obj *AWSIAMConfigurationSpec) { //nolint:golint,stylecheck
 	if obj.NameSuffix == nil {
-		obj.NameSuffix = utilpointer.StringPtr(iamv1.DefaultNameSuffix)
+		obj.NameSuffix = utilpointer.String(iamv1.DefaultNameSuffix)
 	}
 	if obj.Partition == "" {
 		obj.Partition = DefaultPartitionName
@@ -98,7 +98,7 @@ func SetDefaults_AWSIAMConfiguration(obj *AWSIAMConfiguration) { //nolint:golint
 	obj.APIVersion = SchemeGroupVersion.String()
 	obj.Kind = "AWSIAMConfiguration"
 	if obj.Spec.NameSuffix == nil {
-		obj.Spec.NameSuffix = utilpointer.StringPtr(iamv1.DefaultNameSuffix)
+		obj.Spec.NameSuffix = utilpointer.String(iamv1.DefaultNameSuffix)
 	}
 	if obj.Spec.StackName == "" {
 		obj.Spec.StackName = DefaultStackName

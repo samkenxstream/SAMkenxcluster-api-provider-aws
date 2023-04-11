@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,8 +28,8 @@ import (
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	amiv1 "sigs.k8s.io/cluster-api-provider-aws/cmd/clusterawsadm/api/ami/v1beta1"
-	ec2service "sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/ec2"
+	amiv1 "sigs.k8s.io/cluster-api-provider-aws/v2/cmd/clusterawsadm/api/ami/v1beta1"
+	ec2service "sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/ec2"
 	"sigs.k8s.io/cluster-api/util"
 )
 
@@ -57,7 +57,7 @@ func Copy(input CopyInput) (*amiv1.AWSAMI, error) {
 	}
 	ec2Client := ec2.New(sourceSession)
 
-	image, err := ec2service.DefaultAMILookup(ec2Client, input.OwnerID, input.OperatingSystem, input.KubernetesVersion, "")
+	image, err := ec2service.DefaultAMILookup(ec2Client, input.OwnerID, input.OperatingSystem, input.KubernetesVersion, ec2service.Amd64ArchitectureTag, "")
 	if err != nil {
 		return nil, err
 	}

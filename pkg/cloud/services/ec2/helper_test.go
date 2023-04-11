@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,10 +27,10 @@ import (
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/controlplane/eks/api/v1beta1"
-	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/exp/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/scope"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2"
+	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/scope"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/exp/api/v1beta1"
 )
@@ -101,6 +101,7 @@ func newAWSMachinePool() *expinfrav1.AWSMachinePool {
 				AMI:                infrav1.AMIReference{},
 				InstanceType:       "t3.large",
 				SSHKeyName:         aws.String("default"),
+				SpotMarketOptions:  &infrav1.SpotMarketOptions{MaxPrice: aws.String("0.9")},
 			},
 		},
 		Status: expinfrav1.AWSMachinePoolStatus{
@@ -175,7 +176,7 @@ func newMachinePool() *v1beta1.MachinePool {
 		Spec: v1beta1.MachinePoolSpec{
 			Template: clusterv1.MachineTemplateSpec{
 				Spec: clusterv1.MachineSpec{
-					Version: pointer.StringPtr("v1.23.3"),
+					Version: pointer.String("v1.23.3"),
 				},
 			},
 		},
@@ -203,6 +204,9 @@ func setupScheme() (*runtime.Scheme, error) {
 		return nil, err
 	}
 	if err := ekscontrolplanev1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	if err := v1beta1.AddToScheme(scheme); err != nil {
 		return nil, err
 	}
 	return scheme, nil

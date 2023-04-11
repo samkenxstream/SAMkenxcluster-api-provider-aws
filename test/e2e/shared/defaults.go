@@ -8,7 +8,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	cgscheme "k8s.io/client-go/kubernetes/scheme"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
 	"sigs.k8s.io/cluster-api/test/framework"
 )
 
@@ -42,14 +42,18 @@ const (
 	KubernetesVersionManagement          = "KUBERNETES_VERSION_MANAGEMENT"
 	CNIPath                              = "CNI"
 	CNIResources                         = "CNI_RESOURCES"
+	CNIAddonVersion                      = "VPC_ADDON_VERSION"
+	CorednsAddonVersion                  = "COREDNS_ADDON_VERSION"
+	GcWorkloadPath                       = "GC_WORKLOAD"
+	KubeproxyAddonVersion                = "KUBE_PROXY_ADDON_VERSION"
 	AwsNodeMachineType                   = "AWS_NODE_MACHINE_TYPE"
 	AwsAvailabilityZone1                 = "AWS_AVAILABILITY_ZONE_1"
 	AwsAvailabilityZone2                 = "AWS_AVAILABILITY_ZONE_2"
-	MultiAzFlavor                        = "multi-az"
 	LimitAzFlavor                        = "limit-az"
 	SpotInstancesFlavor                  = "spot-instances"
 	SSMFlavor                            = "ssm"
 	TopologyFlavor                       = "topology"
+	SelfHostedClusterClassFlavor         = "self-hosted-clusterclass"
 	UpgradeToMain                        = "upgrade-to-main"
 	ExternalCloudProvider                = "external-cloud-provider"
 	SimpleMultitenancyFlavor             = "simple-multitenancy"
@@ -63,6 +67,7 @@ const (
 	PreCSIKubernetesVer                  = "PRE_1_23_KUBERNETES_VERSION"
 	PostCSIKubernetesVer                 = "POST_1_23_KUBERNETES_VERSION"
 	EFSSupport                           = "efs-support"
+	IntreeCloudProvider                  = "intree-cloud-provider"
 )
 
 var ResourceQuotaFilePath = "/tmp/capa-e2e-resource-usage.lock"
@@ -142,7 +147,7 @@ func getLimitedResources() map[string]*ServiceQuota {
 		ServiceCode:         "vpc",
 		QuotaName:           "VPCs per Region",
 		QuotaCode:           "L-F678F1CE",
-		DesiredMinimumValue: 20,
+		DesiredMinimumValue: 25,
 	}
 
 	serviceQuotas["ec2-normal"] = &ServiceQuota{
@@ -180,6 +185,13 @@ func getLimitedResources() map[string]*ServiceQuota {
 		DesiredMinimumValue: 50,
 	}
 
+	serviceQuotas["eventBridge-rules"] = &ServiceQuota{
+		ServiceCode:         "events",
+		QuotaName:           "Maximum number of rules an account can have per event bus",
+		QuotaCode:           "L-244521F2",
+		DesiredMinimumValue: 500,
+	}
+
 	return serviceQuotas
 }
 
@@ -204,6 +216,7 @@ func CreateDefaultFlags(ctx *E2EContext) {
 	flag.BoolVar(&ctx.Settings.SkipCleanup, "skip-cleanup", false, "if true, the resource cleanup after tests will be skipped")
 	flag.BoolVar(&ctx.Settings.SkipCloudFormationDeletion, "skip-cloudformation-deletion", false, "if true, an AWS CloudFormation stack will not be deleted")
 	flag.BoolVar(&ctx.Settings.SkipCloudFormationCreation, "skip-cloudformation-creation", false, "if true, an AWS CloudFormation stack will not be created")
+	flag.BoolVar(&ctx.Settings.SkipQuotas, "skip-quotas", false, "if true, the requesting of quotas for aws services will be skipped")
 	flag.StringVar(&ctx.Settings.DataFolder, "data-folder", "", "path to the data folder")
-	flag.StringVar(&ctx.Settings.SourceTemplate, "source-template", "infrastructure-aws/generated/cluster-template.yaml", "path to the data folder")
+	flag.StringVar(&ctx.Settings.SourceTemplate, "source-template", "infrastructure-aws/withoutclusterclass/generated/cluster-template.yaml", "path to the data folder")
 }

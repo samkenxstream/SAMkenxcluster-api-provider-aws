@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -259,14 +259,12 @@ type AWSMachineStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=awsmachines,scope=Namespaced,categories=cluster-api,shortName=awsm
-// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Cluster",type="string",JSONPath=".metadata.labels.cluster\\.x-k8s\\.io/cluster-name",description="Cluster to which this AWSMachine belongs"
 // +kubebuilder:printcolumn:name="State",type="string",JSONPath=".status.instanceState",description="EC2 instance state"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.ready",description="Machine ready status"
 // +kubebuilder:printcolumn:name="InstanceID",type="string",JSONPath=".spec.providerID",description="EC2 instance ID"
 // +kubebuilder:printcolumn:name="Machine",type="string",JSONPath=".metadata.ownerReferences[?(@.kind==\"Machine\")].name",description="Machine object which owns with this AWSMachine"
-// +k8s:defaulter-gen=true
 
 // AWSMachine is the schema for Amazon EC2 machines.
 type AWSMachine struct {

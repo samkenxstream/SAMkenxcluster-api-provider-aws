@@ -8,7 +8,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,10 +23,10 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go/aws/client"
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/controlplane/eks/api/v1beta1"
+	ekscontrolplanev1 "sigs.k8s.io/cluster-api-provider-aws/v2/controlplane/eks/api/v1beta2"
 )
 
 type waitForEKSAddonToHaveStatusInput struct {
@@ -40,9 +40,9 @@ type waitForEKSAddonToHaveStatusInput struct {
 func waitForEKSAddonToHaveStatus(input waitForEKSAddonToHaveStatusInput, intervals ...interface{}) {
 	Expect(input.ControlPlane).ToNot(BeNil(), "Invalid argument. input.ControlPlane can't be nil")
 	Expect(input.AWSSession).ToNot(BeNil(), "Invalid argument. input.AWSSession can't be nil")
-	Expect(input.AddonName).ShouldNot(HaveLen(0), "Invalid argument. input.AddonName can't be empty")
-	Expect(input.AddonVersion).ShouldNot(HaveLen(0), "Invalid argument. input.AddonVersion can't be empty")
-	Expect(input.AddonStatus).ShouldNot(HaveLen(0), "Invalid argument. input.AddonStatus can't be empty")
+	Expect(input.AddonName).ShouldNot(BeEmpty(), "Invalid argument. input.AddonName can't be empty")
+	Expect(input.AddonVersion).ShouldNot(BeEmpty(), "Invalid argument. input.AddonVersion can't be empty")
+	Expect(input.AddonStatus).ShouldNot(BeEmpty(), "Invalid argument. input.AddonStatus can't be empty")
 
 	ginkgo.By(fmt.Sprintf("Ensuring EKS addon %s has status in %q for EKS cluster %s", input.AddonName, input.AddonStatus, input.ControlPlane.Spec.EKSClusterName))
 

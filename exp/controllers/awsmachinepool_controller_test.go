@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -35,12 +35,13 @@ import (
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/exp/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/scope"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/mock_services"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/scope"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/mock_services"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/logger"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/controllers/noderefutil"
 	capierrors "sigs.k8s.io/cluster-api/errors"
@@ -80,7 +81,7 @@ func TestAWSMachinePoolReconciler(t *testing.T) {
 				Namespace: "default",
 			},
 			Spec: expinfrav1.AWSMachinePoolSpec{
-				MinSize: int32(1),
+				MinSize: int32(0),
 				MaxSize: int32(1),
 			},
 		}
@@ -107,11 +108,17 @@ func TestAWSMachinePoolReconciler(t *testing.T) {
 					},
 				},
 				MachinePool: &expclusterv1.MachinePool{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "mp",
+						Namespace: "default",
+					},
 					Spec: expclusterv1.MachinePoolSpec{
+						ClusterName: "test",
 						Template: clusterv1.MachineTemplateSpec{
 							Spec: clusterv1.MachineSpec{
+								ClusterName: "test",
 								Bootstrap: clusterv1.Bootstrap{
-									DataSecretName: pointer.StringPtr("bootstrap-data"),
+									DataSecretName: pointer.String("bootstrap-data"),
 								},
 							},
 						},
@@ -174,7 +181,7 @@ func TestAWSMachinePoolReconciler(t *testing.T) {
 
 				er := capierrors.CreateMachineError
 				ms.AWSMachinePool.Status.FailureReason = &er
-				ms.AWSMachinePool.Status.FailureMessage = pointer.StringPtr("Couldn't create machine pool")
+				ms.AWSMachinePool.Status.FailureMessage = pointer.String("Couldn't create machine pool")
 
 				buf := new(bytes.Buffer)
 				klog.SetOutput(buf)
@@ -187,6 +194,8 @@ func TestAWSMachinePoolReconciler(t *testing.T) {
 				setup(t, g)
 				defer teardown(t, g)
 				getASG(t, g)
+
+				ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any())
 
 				_, _ = reconciler.reconcileNormal(context.Background(), ms, cs, cs)
 
@@ -242,26 +251,188 @@ func TestAWSMachinePoolReconciler(t *testing.T) {
 				setProviderID(t, g)
 
 				expectedErr := errors.New("no connection available ")
-				var launchtemplate *expinfrav1.AWSLaunchTemplate
-				ec2Svc.EXPECT().GetLaunchTemplate(gomock.Any()).Return(launchtemplate, "", expectedErr)
+				ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return(expectedErr)
 				_, err := reconciler.reconcileNormal(context.Background(), ms, cs, cs)
 				g.Expect(errors.Cause(err)).To(MatchError(expectedErr))
 			})
-			t.Run("should try to create a new machinepool if none exists", func(t *testing.T) {
+		})
+		t.Run("there's suspended processes provided during ASG creation", func(t *testing.T) {
+			setSuspendedProcesses := func(t *testing.T, g *WithT) {
+				t.Helper()
+				ms.AWSMachinePool.Spec.SuspendProcesses = &expinfrav1.SuspendProcessesTypes{
+					Processes: &expinfrav1.Processes{
+						Launch:    pointer.Bool(true),
+						Terminate: pointer.Bool(true),
+					},
+				}
+			}
+			t.Run("it should not call suspend as we don't have an ASG yet", func(t *testing.T) {
 				g := NewWithT(t)
 				setup(t, g)
 				defer teardown(t, g)
-				setProviderID(t, g)
+				setSuspendedProcesses(t, g)
 
-				expectedErr := errors.New("Invalid instance")
-				asgSvc.EXPECT().ASGIfExists(gomock.Any()).Return(nil, nil).AnyTimes()
-				ec2Svc.EXPECT().GetLaunchTemplate(gomock.Any()).Return(nil, "", nil)
-				ec2Svc.EXPECT().DiscoverLaunchTemplateAMI(gomock.Any()).Return(nil, nil)
-				ec2Svc.EXPECT().CreateLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return("", expectedErr).AnyTimes()
+				ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				asgSvc.EXPECT().GetASGByName(gomock.Any()).Return(nil, nil)
+				asgSvc.EXPECT().CreateASG(gomock.Any()).Return(&expinfrav1.AutoScalingGroup{
+					Name: "name",
+				}, nil)
+				asgSvc.EXPECT().SuspendProcesses("name", []string{"Launch", "Terminate"}).Return(nil).AnyTimes().Times(0)
 
 				_, err := reconciler.reconcileNormal(context.Background(), ms, cs, cs)
-				g.Expect(errors.Cause(err)).To(MatchError(expectedErr))
+				g.Expect(err).To(Succeed())
 			})
+		})
+		t.Run("all processes are suspended", func(t *testing.T) {
+			setSuspendedProcesses := func(t *testing.T, g *WithT) {
+				t.Helper()
+				ms.AWSMachinePool.Spec.SuspendProcesses = &expinfrav1.SuspendProcessesTypes{
+					All: true,
+				}
+			}
+			t.Run("processes should be suspended during an update call", func(t *testing.T) {
+				g := NewWithT(t)
+				setup(t, g)
+				defer teardown(t, g)
+				setSuspendedProcesses(t, g)
+				ms.AWSMachinePool.Spec.SuspendProcesses.All = true
+				ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				ec2Svc.EXPECT().ReconcileTags(gomock.Any(), gomock.Any()).Return(nil)
+				asgSvc.EXPECT().GetASGByName(gomock.Any()).Return(&expinfrav1.AutoScalingGroup{
+					Name: "name",
+				}, nil)
+				asgSvc.EXPECT().SubnetIDs(gomock.Any()).Return([]string{}, nil).Times(1)
+				asgSvc.EXPECT().UpdateASG(gomock.Any()).Return(nil).AnyTimes()
+				asgSvc.EXPECT().SuspendProcesses("name", gomock.InAnyOrder([]string{
+					"ScheduledActions",
+					"Launch",
+					"Terminate",
+					"AddToLoadBalancer",
+					"AlarmNotification",
+					"AZRebalance",
+					"InstanceRefresh",
+					"HealthCheck",
+					"ReplaceUnhealthy",
+				})).Return(nil).AnyTimes().Times(1)
+
+				_, err := reconciler.reconcileNormal(context.Background(), ms, cs, cs)
+				g.Expect(err).To(Succeed())
+			})
+		})
+		t.Run("there are existing processes already suspended", func(t *testing.T) {
+			setSuspendedProcesses := func(t *testing.T, g *WithT) {
+				t.Helper()
+
+				ms.AWSMachinePool.Spec.SuspendProcesses = &expinfrav1.SuspendProcessesTypes{
+					Processes: &expinfrav1.Processes{
+						Launch:    pointer.Bool(true),
+						Terminate: pointer.Bool(true),
+					},
+				}
+			}
+			t.Run("it should suspend and resume processes that are desired to be suspended and desired to be resumed", func(t *testing.T) {
+				g := NewWithT(t)
+				setup(t, g)
+				defer teardown(t, g)
+				setSuspendedProcesses(t, g)
+
+				ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+				ec2Svc.EXPECT().ReconcileTags(gomock.Any(), gomock.Any()).Return(nil)
+				asgSvc.EXPECT().GetASGByName(gomock.Any()).Return(&expinfrav1.AutoScalingGroup{
+					Name:                      "name",
+					CurrentlySuspendProcesses: []string{"Launch", "process3"},
+				}, nil)
+				asgSvc.EXPECT().SubnetIDs(gomock.Any()).Return([]string{}, nil).Times(1)
+				asgSvc.EXPECT().UpdateASG(gomock.Any()).Return(nil).AnyTimes()
+				asgSvc.EXPECT().SuspendProcesses("name", []string{"Terminate"}).Return(nil).AnyTimes().Times(1)
+				asgSvc.EXPECT().ResumeProcesses("name", []string{"process3"}).Return(nil).AnyTimes().Times(1)
+
+				_, err := reconciler.reconcileNormal(context.Background(), ms, cs, cs)
+				g.Expect(err).To(Succeed())
+			})
+		})
+
+		t.Run("externally managed annotation", func(t *testing.T) {
+			g := NewWithT(t)
+			setup(t, g)
+			defer teardown(t, g)
+
+			asg := expinfrav1.AutoScalingGroup{
+				Name:            "an-asg",
+				DesiredCapacity: pointer.Int32(1),
+			}
+			asgSvc.EXPECT().GetASGByName(gomock.Any()).Return(&asg, nil).AnyTimes()
+			asgSvc.EXPECT().SubnetIDs(gomock.Any()).Return([]string{}, nil).Times(1)
+			asgSvc.EXPECT().UpdateASG(gomock.Any()).Return(nil).AnyTimes()
+			ec2Svc.EXPECT().GetLaunchTemplate(gomock.Any()).Return(nil, "", nil).AnyTimes()
+			ec2Svc.EXPECT().DiscoverLaunchTemplateAMI(gomock.Any()).Return(nil, nil).AnyTimes()
+			ec2Svc.EXPECT().CreateLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return("", nil).AnyTimes()
+			ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			ec2Svc.EXPECT().ReconcileTags(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+			ms.MachinePool.Annotations = map[string]string{
+				scope.ReplicasManagedByAnnotation: scope.ExternalAutoscalerReplicasManagedByAnnotationValue,
+			}
+			ms.MachinePool.Spec.Replicas = pointer.Int32(0)
+
+			g.Expect(testEnv.Create(ctx, ms.MachinePool)).To(Succeed())
+
+			_, _ = reconciler.reconcileNormal(context.Background(), ms, cs, cs)
+			g.Expect(*ms.MachinePool.Spec.Replicas).To(Equal(int32(1)))
+		})
+		t.Run("No need to update Asg because asgNeedsUpdates is false and no subnets change", func(t *testing.T) {
+			g := NewWithT(t)
+			setup(t, g)
+			defer teardown(t, g)
+
+			asg := expinfrav1.AutoScalingGroup{
+				MinSize: int32(0),
+				MaxSize: int32(1),
+				Subnets: []string{"subnet1", "subnet2"}}
+			ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			ec2Svc.EXPECT().ReconcileTags(gomock.Any(), gomock.Any()).Return(nil)
+			asgSvc.EXPECT().GetASGByName(gomock.Any()).Return(&asg, nil).AnyTimes()
+			asgSvc.EXPECT().SubnetIDs(gomock.Any()).Return([]string{"subnet2", "subnet1"}, nil).Times(1)
+			asgSvc.EXPECT().UpdateASG(gomock.Any()).Return(nil).Times(0)
+
+			_, err := reconciler.reconcileNormal(context.Background(), ms, cs, cs)
+			g.Expect(err).To(Succeed())
+		})
+		t.Run("update Asg due to subnet changes", func(t *testing.T) {
+			g := NewWithT(t)
+			setup(t, g)
+			defer teardown(t, g)
+
+			asg := expinfrav1.AutoScalingGroup{
+				MinSize: int32(0),
+				MaxSize: int32(1),
+				Subnets: []string{"subnet1", "subnet2"}}
+			ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			ec2Svc.EXPECT().ReconcileTags(gomock.Any(), gomock.Any()).Return(nil)
+			asgSvc.EXPECT().GetASGByName(gomock.Any()).Return(&asg, nil).AnyTimes()
+			asgSvc.EXPECT().SubnetIDs(gomock.Any()).Return([]string{"subnet1"}, nil).Times(1)
+			asgSvc.EXPECT().UpdateASG(gomock.Any()).Return(nil).Times(1)
+
+			_, err := reconciler.reconcileNormal(context.Background(), ms, cs, cs)
+			g.Expect(err).To(Succeed())
+		})
+		t.Run("update Asg due to asgNeedsUpdates returns true", func(t *testing.T) {
+			g := NewWithT(t)
+			setup(t, g)
+			defer teardown(t, g)
+
+			asg := expinfrav1.AutoScalingGroup{
+				MinSize: int32(0),
+				MaxSize: int32(2),
+				Subnets: []string{}}
+			ec2Svc.EXPECT().ReconcileLaunchTemplate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			ec2Svc.EXPECT().ReconcileTags(gomock.Any(), gomock.Any()).Return(nil)
+			asgSvc.EXPECT().GetASGByName(gomock.Any()).Return(&asg, nil).AnyTimes()
+			asgSvc.EXPECT().SubnetIDs(gomock.Any()).Return([]string{}, nil).Times(1)
+			asgSvc.EXPECT().UpdateASG(gomock.Any()).Return(nil).Times(1)
+
+			_, err := reconciler.reconcileNormal(context.Background(), ms, cs, cs)
+			g.Expect(err).To(Succeed())
 		})
 	})
 
@@ -321,7 +492,7 @@ func TestAWSMachinePoolReconciler(t *testing.T) {
 			klog.SetOutput(buf)
 			_, err := reconciler.reconcileDelete(ms, cs, cs)
 			g.Expect(err).To(BeNil())
-			g.Expect(ms.AWSMachinePool.Status.Ready).To(Equal(false))
+			g.Expect(ms.AWSMachinePool.Status.Ready).To(BeFalse())
 			g.Eventually(recorder.Events).Should(Receive(ContainSubstring("DeletionInProgress")))
 		})
 	})
@@ -365,7 +536,7 @@ func setupCluster(clusterName string) (*scope.ClusterScope, error) {
 	})
 }
 
-func Test_asgNeedsUpdates(t *testing.T) {
+func TestASGNeedsUpdates(t *testing.T) {
 	type args struct {
 		machinePoolScope *scope.MachinePoolScope
 		existingASG      *expinfrav1.AutoScalingGroup
@@ -517,7 +688,7 @@ func Test_asgNeedsUpdates(t *testing.T) {
 							},
 						},
 					},
-					Logger: logr.Discard(),
+					Logger: *logger.NewLogger(logr.Discard()),
 				},
 				existingASG: &expinfrav1.AutoScalingGroup{
 					DesiredCapacity:      pointer.Int32(1),
@@ -525,6 +696,47 @@ func Test_asgNeedsUpdates(t *testing.T) {
 					MinSize:              0,
 					CapacityRebalance:    true,
 					MixedInstancesPolicy: &expinfrav1.MixedInstancesPolicy{},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "SuspendProcesses != asg.SuspendProcesses",
+			args: args{
+				machinePoolScope: &scope.MachinePoolScope{
+					MachinePool: &expclusterv1.MachinePool{
+						Spec: expclusterv1.MachinePoolSpec{
+							Replicas: pointer.Int32(1),
+						},
+					},
+					AWSMachinePool: &expinfrav1.AWSMachinePool{
+						Spec: expinfrav1.AWSMachinePoolSpec{
+							MaxSize:           2,
+							MinSize:           0,
+							CapacityRebalance: true,
+							MixedInstancesPolicy: &expinfrav1.MixedInstancesPolicy{
+								InstancesDistribution: &expinfrav1.InstancesDistribution{
+									OnDemandAllocationStrategy: expinfrav1.OnDemandAllocationStrategyPrioritized,
+								},
+								Overrides: nil,
+							},
+							SuspendProcesses: &expinfrav1.SuspendProcessesTypes{
+								Processes: &expinfrav1.Processes{
+									Launch:    pointer.Bool(true),
+									Terminate: pointer.Bool(true),
+								},
+							},
+						},
+					},
+					Logger: *logger.NewLogger(logr.Discard()),
+				},
+				existingASG: &expinfrav1.AutoScalingGroup{
+					DesiredCapacity:           pointer.Int32(1),
+					MaxSize:                   2,
+					MinSize:                   0,
+					CapacityRebalance:         true,
+					MixedInstancesPolicy:      &expinfrav1.MixedInstancesPolicy{},
+					CurrentlySuspendProcesses: []string{"Launch", "Terminate"},
 				},
 			},
 			want: true,
@@ -566,6 +778,49 @@ func Test_asgNeedsUpdates(t *testing.T) {
 				},
 			},
 			want: false,
+		},
+		{
+			name: "externally managed annotation ignores difference between desiredCapacity and replicas",
+			args: args{
+				machinePoolScope: &scope.MachinePoolScope{
+					MachinePool: &expclusterv1.MachinePool{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								scope.ReplicasManagedByAnnotation: scope.ExternalAutoscalerReplicasManagedByAnnotationValue,
+							},
+						},
+						Spec: expclusterv1.MachinePoolSpec{
+							Replicas: pointer.Int32(0),
+						},
+					},
+					AWSMachinePool: &expinfrav1.AWSMachinePool{
+						Spec: expinfrav1.AWSMachinePoolSpec{},
+					},
+				},
+				existingASG: &expinfrav1.AutoScalingGroup{
+					DesiredCapacity: pointer.Int32(1),
+				},
+			},
+			want: false,
+		},
+		{
+			name: "without externally managed annotation ignores difference between desiredCapacity and replicas",
+			args: args{
+				machinePoolScope: &scope.MachinePoolScope{
+					MachinePool: &expclusterv1.MachinePool{
+						Spec: expclusterv1.MachinePoolSpec{
+							Replicas: pointer.Int32(0),
+						},
+					},
+					AWSMachinePool: &expinfrav1.AWSMachinePool{
+						Spec: expinfrav1.AWSMachinePoolSpec{},
+					},
+				},
+				existingASG: &expinfrav1.AutoScalingGroup{
+					DesiredCapacity: pointer.Int32(1),
+				},
+			},
+			want: true,
 		},
 	}
 	for _, tt := range tests {

@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,12 +22,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -38,34 +38,32 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-aws/feature"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/scope"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/ec2"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/elb"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/instancestate"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/network"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/s3"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/securitygroup"
-	infrautilconditions "sigs.k8s.io/cluster-api-provider-aws/util/conditions"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/feature"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/scope"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/ec2"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/elb"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/gc"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/instancestate"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/network"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/s3"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/securitygroup"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/logger"
+	infrautilconditions "sigs.k8s.io/cluster-api-provider-aws/v2/util/conditions"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/util"
-	"sigs.k8s.io/cluster-api/util/annotations"
+	capiannotations "sigs.k8s.io/cluster-api/util/annotations"
 	"sigs.k8s.io/cluster-api/util/conditions"
-	"sigs.k8s.io/cluster-api/util/patch"
 	"sigs.k8s.io/cluster-api/util/predicates"
 )
 
-var (
-	awsSecurityGroupRoles = []infrav1.SecurityGroupRole{
-		infrav1.SecurityGroupBastion,
-		infrav1.SecurityGroupAPIServerLB,
-		infrav1.SecurityGroupLB,
-		infrav1.SecurityGroupControlPlane,
-		infrav1.SecurityGroupNode,
-	}
-)
+var defaultAWSSecurityGroupRoles = []infrav1.SecurityGroupRole{
+	infrav1.SecurityGroupAPIServerLB,
+	infrav1.SecurityGroupLB,
+	infrav1.SecurityGroupControlPlane,
+	infrav1.SecurityGroupNode,
+}
 
 // AWSClusterReconciler reconciles a AwsCluster object.
 type AWSClusterReconciler struct {
@@ -77,6 +75,8 @@ type AWSClusterReconciler struct {
 	securityGroupFactory  func(scope.ClusterScope) services.SecurityGroupInterface
 	Endpoints             []scope.ServiceEndpoint
 	WatchFilterValue      string
+	ExternalResourceGC    bool
+	AlternativeGCStrategy bool
 }
 
 // getEC2Service factory func is added for testing purpose so that we can inject mocked EC2Service to the AWSClusterReconciler.
@@ -103,22 +103,34 @@ func (r *AWSClusterReconciler) getNetworkService(scope scope.ClusterScope) servi
 	return network.NewService(&scope)
 }
 
+// securityGroupRolesForCluster returns the security group roles determined by the cluster configuration.
+func securityGroupRolesForCluster(scope scope.ClusterScope) []infrav1.SecurityGroupRole {
+	// Copy to ensure we do not modify the package-level variable.
+	roles := make([]infrav1.SecurityGroupRole, len(defaultAWSSecurityGroupRoles))
+	copy(roles, defaultAWSSecurityGroupRoles)
+
+	if scope.Bastion().Enabled {
+		roles = append(roles, infrav1.SecurityGroupBastion)
+	}
+	return roles
+}
+
 // getSecurityGroupService factory func is added for testing purpose so that we can inject mocked SecurityGroupService to the AWSClusterReconciler.
 func (r *AWSClusterReconciler) getSecurityGroupService(scope scope.ClusterScope) services.SecurityGroupInterface {
 	if r.securityGroupFactory != nil {
 		return r.securityGroupFactory(scope)
 	}
-	return securitygroup.NewService(&scope, awsSecurityGroupRoles)
+	return securitygroup.NewService(&scope, securityGroupRolesForCluster(scope))
 }
 
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=awsclusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=awsclusters,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=awsclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=awsclusterroleidentities;awsclusterstaticidentities,verbs=get;list;watch
-// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=awsclustercontrolleridentities,verbs=get;list;watch;create;
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=awsclustercontrolleridentities,verbs=get;list;watch;create
 
 func (r *AWSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
-	log := ctrl.LoggerFrom(ctx)
+	log := logger.FromContext(ctx)
 
 	// Fetch the AWSCluster instance
 	awsCluster := &infrav1.AWSCluster{}
@@ -129,6 +141,13 @@ func (r *AWSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return reconcile.Result{}, err
 	}
+
+	// CNI related security groups gets deleted from the AWSClusters created prior to networkSpec.cni defaulting (5.5) after upgrading controllers.
+	// https://github.com/kubernetes-sigs/cluster-api-provider-aws/issues/2084
+	// TODO: Remove this after v1alpha4
+	// The defaulting must happen before `NewClusterScope` is called since otherwise we keep detecting
+	// differences that result in patch operations.
+	awsCluster.Default()
 
 	// Fetch the Cluster.
 	cluster, err := util.GetOwnerCluster(ctx, r.Client, awsCluster.ObjectMeta)
@@ -141,34 +160,17 @@ func (r *AWSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return reconcile.Result{}, nil
 	}
 
-	if annotations.IsPaused(cluster, awsCluster) {
+	if capiannotations.IsPaused(cluster, awsCluster) {
 		log.Info("AWSCluster or linked Cluster is marked as paused. Won't reconcile")
 		return reconcile.Result{}, nil
 	}
 
-	log = log.WithValues("cluster", cluster.Name)
-	helper, err := patch.NewHelper(awsCluster, r.Client)
-	if err != nil {
-		return reconcile.Result{}, errors.Wrap(err, "failed to init patch helper")
-	}
-
-	defer func() {
-		e := helper.Patch(
-			context.TODO(),
-			awsCluster,
-			patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
-				infrav1.PrincipalCredentialRetrievedCondition,
-				infrav1.PrincipalUsageAllowedCondition,
-			}})
-		if e != nil {
-			fmt.Println(e.Error())
-		}
-	}()
+	log = log.WithValues("cluster", klog.KObj(cluster))
 
 	// Create the scope.
 	clusterScope, err := scope.NewClusterScope(scope.ClusterScopeParams{
 		Client:         r.Client,
-		Logger:         &log,
+		Logger:         log,
 		Cluster:        cluster,
 		AWSCluster:     awsCluster,
 		ControllerName: "awscluster",
@@ -187,14 +189,14 @@ func (r *AWSClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	// Handle deleted clusters
 	if !awsCluster.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(clusterScope)
+		return r.reconcileDelete(ctx, clusterScope)
 	}
 
 	// Handle non-deleted clusters
 	return r.reconcileNormal(clusterScope)
 }
 
-func (r *AWSClusterReconciler) reconcileDelete(clusterScope *scope.ClusterScope) (reconcile.Result, error) {
+func (r *AWSClusterReconciler) reconcileDelete(ctx context.Context, clusterScope *scope.ClusterScope) (reconcile.Result, error) {
 	clusterScope.Info("Reconciling AWSCluster delete")
 
 	ec2svc := r.getEC2Service(clusterScope)
@@ -226,6 +228,13 @@ func (r *AWSClusterReconciler) reconcileDelete(clusterScope *scope.ClusterScope)
 		return reconcile.Result{}, err
 	}
 
+	if r.ExternalResourceGC {
+		gcSvc := gc.NewService(clusterScope, gc.WithGCStrategy(r.AlternativeGCStrategy))
+		if gcErr := gcSvc.ReconcileDelete(ctx); gcErr != nil {
+			return reconcile.Result{}, fmt.Errorf("failed delete reconcile for gc service: %w", gcErr)
+		}
+	}
+
 	if err := networkSvc.DeleteNetwork(); err != nil {
 		clusterScope.Error(err, "error deleting network")
 		return reconcile.Result{}, err
@@ -247,10 +256,11 @@ func (r *AWSClusterReconciler) reconcileNormal(clusterScope *scope.ClusterScope)
 	awsCluster := clusterScope.AWSCluster
 
 	// If the AWSCluster doesn't have our finalizer, add it.
-	controllerutil.AddFinalizer(awsCluster, infrav1.ClusterFinalizer)
-	// Register the finalizer immediately to avoid orphaning AWS resources on delete
-	if err := clusterScope.PatchObject(); err != nil {
-		return reconcile.Result{}, err
+	if controllerutil.AddFinalizer(awsCluster, infrav1.ClusterFinalizer) {
+		// Register the finalizer immediately to avoid orphaning AWS resources on delete
+		if err := clusterScope.PatchObject(); err != nil {
+			return reconcile.Result{}, err
+		}
 	}
 
 	ec2Service := r.getEC2Service(clusterScope)
@@ -263,11 +273,6 @@ func (r *AWSClusterReconciler) reconcileNormal(clusterScope *scope.ClusterScope)
 		clusterScope.Error(err, "failed to reconcile network")
 		return reconcile.Result{}, err
 	}
-
-	// CNI related security groups gets deleted from the AWSClusters created prior to networkSpec.cni defaulting (5.5) after upgrading controllers.
-	// https://github.com/kubernetes-sigs/cluster-api-provider-aws/issues/2084
-	// TODO: Remove this after v1aplha4
-	clusterScope.AWSCluster.Default()
 
 	if err := sgService.ReconcileSecurityGroups(); err != nil {
 		clusterScope.Error(err, "failed to reconcile security groups")
@@ -306,10 +311,12 @@ func (r *AWSClusterReconciler) reconcileNormal(clusterScope *scope.ClusterScope)
 		return reconcile.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
+	clusterScope.Debug("looking up IP address for DNS", "dns", awsCluster.Status.Network.APIServerELB.DNSName)
 	if _, err := net.LookupIP(awsCluster.Status.Network.APIServerELB.DNSName); err != nil {
+		clusterScope.Error(err, "failed to get IP address for dns name", "dns", awsCluster.Status.Network.APIServerELB.DNSName)
 		conditions.MarkFalse(awsCluster, infrav1.LoadBalancerReadyCondition, infrav1.WaitForDNSNameResolveReason, clusterv1.ConditionSeverityInfo, "")
 		clusterScope.Info("Waiting on API server ELB DNS name to resolve")
-		return reconcile.Result{RequeueAfter: 15 * time.Second}, nil // nolint:nilerr
+		return reconcile.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 	conditions.MarkTrue(awsCluster, infrav1.LoadBalancerReadyCondition)
 
@@ -337,11 +344,11 @@ func (r *AWSClusterReconciler) reconcileNormal(clusterScope *scope.ClusterScope)
 }
 
 func (r *AWSClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
-	log := ctrl.LoggerFrom(ctx)
+	log := logger.FromContext(ctx)
 	controller, err := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(options).
 		For(&infrav1.AWSCluster{}).
-		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(log, r.WatchFilterValue)).
+		WithEventFilter(predicates.ResourceNotPausedAndHasFilterLabel(log.GetLogger(), r.WatchFilterValue)).
 		WithEventFilter(
 			predicate.Funcs{
 				// Avoid reconciling if the event triggering the reconciliation is related to incremental status updates
@@ -364,7 +371,7 @@ func (r *AWSClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 				},
 			},
 		).
-		WithEventFilter(predicates.ResourceIsNotExternallyManaged(log)).
+		WithEventFilter(predicates.ResourceIsNotExternallyManaged(log.GetLogger())).
 		Build(r)
 	if err != nil {
 		return errors.Wrap(err, "error creating controller")
@@ -373,33 +380,33 @@ func (r *AWSClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Ma
 	return controller.Watch(
 		&source.Kind{Type: &clusterv1.Cluster{}},
 		handler.EnqueueRequestsFromMapFunc(r.requeueAWSClusterForUnpausedCluster(ctx, log)),
-		predicates.ClusterUnpaused(log),
+		predicates.ClusterUnpaused(log.GetLogger()),
 	)
 }
 
-func (r *AWSClusterReconciler) requeueAWSClusterForUnpausedCluster(ctx context.Context, log logr.Logger) handler.MapFunc {
+func (r *AWSClusterReconciler) requeueAWSClusterForUnpausedCluster(ctx context.Context, log logger.Wrapper) handler.MapFunc {
 	return func(o client.Object) []ctrl.Request {
 		c, ok := o.(*clusterv1.Cluster)
 		if !ok {
-			panic(fmt.Sprintf("Expected a Cluster but got a %T", o))
+			klog.Errorf("Expected a Cluster but got a %T", o)
 		}
 
-		log := log.WithValues("objectMapper", "clusterToAWSCluster", "namespace", c.Namespace, "cluster", c.Name)
+		log := log.WithValues("objectMapper", "clusterToAWSCluster", "cluster", klog.KRef(c.Namespace, c.Name))
 
 		// Don't handle deleted clusters
 		if !c.ObjectMeta.DeletionTimestamp.IsZero() {
-			log.V(4).Info("Cluster has a deletion timestamp, skipping mapping.")
+			log.Trace("Cluster has a deletion timestamp, skipping mapping.")
 			return nil
 		}
 
 		// Make sure the ref is set
 		if c.Spec.InfrastructureRef == nil {
-			log.V(4).Info("Cluster does not have an InfrastructureRef, skipping mapping.")
+			log.Trace("Cluster does not have an InfrastructureRef, skipping mapping.")
 			return nil
 		}
 
 		if c.Spec.InfrastructureRef.GroupVersionKind().Kind != "AWSCluster" {
-			log.V(4).Info("Cluster has an InfrastructureRef for a different type, skipping mapping.")
+			log.Trace("Cluster has an InfrastructureRef for a different type, skipping mapping.")
 			return nil
 		}
 
@@ -407,16 +414,16 @@ func (r *AWSClusterReconciler) requeueAWSClusterForUnpausedCluster(ctx context.C
 		key := types.NamespacedName{Namespace: c.Spec.InfrastructureRef.Namespace, Name: c.Spec.InfrastructureRef.Name}
 
 		if err := r.Get(ctx, key, awsCluster); err != nil {
-			log.V(4).Error(err, "Failed to get AWS cluster")
+			log.Error(err, "Failed to get AWS cluster")
 			return nil
 		}
 
-		if annotations.IsExternallyManaged(awsCluster) {
-			log.V(4).Info("AWSCluster is externally managed, skipping mapping.")
+		if capiannotations.IsExternallyManaged(awsCluster) {
+			log.Trace("AWSCluster is externally managed, skipping mapping.")
 			return nil
 		}
 
-		log.V(4).Info("Adding request.", "awsCluster", c.Spec.InfrastructureRef.Name)
+		log.Trace("Adding request.", "awsCluster", c.Spec.InfrastructureRef.Name)
 		return []ctrl.Request{
 			{
 				NamespacedName: client.ObjectKey{Namespace: c.Namespace, Name: c.Spec.InfrastructureRef.Name},

@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,7 +29,7 @@ import (
 	"github.com/blang/semver"
 	"github.com/pkg/errors"
 
-	ec2service "sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/ec2"
+	ec2service "sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/ec2"
 )
 
 const (
@@ -210,13 +210,17 @@ func getAllImages(ec2Client ec2iface.EC2API, ownerID string) (map[string][]*ec2.
 		return nil, errors.Wrap(err, "failed to fetch AMIs")
 	}
 	if len(out.Images) == 0 {
-		return nil, errors.Errorf("no AMIs in the account: %q", ownerID)
+		return nil, nil
 	}
 
 	imagesMap := make(map[string][]*ec2.Image)
 	for _, image := range out.Images {
 		arr := strings.Split(aws.StringValue(image.Name), "-")
-		arr = arr[:len(arr)-2]
+		if arr[len(arr)-2] == "00" {
+			arr = arr[:len(arr)-2]
+		} else {
+			arr = arr[:len(arr)-1]
+		}
 		name := strings.Join(arr, "-")
 		images, ok := imagesMap[name]
 		if !ok {
@@ -230,18 +234,30 @@ func getAllImages(ec2Client ec2iface.EC2API, ownerID string) (map[string][]*ec2.
 
 func findAMI(imagesMap map[string][]*ec2.Image, baseOS, kubernetesVersion string) (*ec2.Image, error) {
 	amiNameFormat := "capa-ami-{{.BaseOS}}-{{.K8sVersion}}"
+	// Support new AMI format capa-ami-<os-version>-?<k8s-version>-*
 	amiName, err := ec2service.GenerateAmiName(amiNameFormat, baseOS, kubernetesVersion)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to process ami format: %q", amiNameFormat)
 	}
-
 	if val, ok := imagesMap[amiName]; ok && val != nil {
-		latestImage, err := ec2service.GetLatestImage(val)
+		return latestAMI(val)
+	} else {
+		amiName, err = ec2service.GenerateAmiName(amiNameFormat, baseOS, strings.TrimPrefix(kubernetesVersion, "v"))
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrapf(err, "failed to process ami format: %q", amiNameFormat)
 		}
-		return latestImage, nil
+		if val, ok = imagesMap[amiName]; ok && val != nil {
+			return latestAMI(val)
+		}
 	}
 
 	return nil, nil
+}
+
+func latestAMI(val []*ec2.Image) (*ec2.Image, error) {
+	latestImage, err := ec2service.GetLatestImage(val)
+	if err != nil {
+		return nil, err
+	}
+	return latestImage, nil
 }

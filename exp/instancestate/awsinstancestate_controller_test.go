@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,9 +34,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-aws/controllers"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/instancestate/mock_sqsiface"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/controllers"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/instancestate/mock_sqsiface"
 )
 
 func TestAWSInstanceStateController(t *testing.T) {
@@ -120,7 +120,7 @@ func TestAWSInstanceStateController(t *testing.T) {
 
 		machine1 := &infrav1.AWSMachine{
 			Spec: infrav1.AWSMachineSpec{
-				InstanceID:   pointer.StringPtr("i-failing-instance-1"),
+				InstanceID:   pointer.String("i-failing-instance-1"),
 				InstanceType: "test",
 			},
 			ObjectMeta: failingMachineMeta,
@@ -142,7 +142,7 @@ func TestAWSInstanceStateController(t *testing.T) {
 		g.Eventually(func() bool {
 			_, ok := instanceStateReconciler.queueURLs.Load("aws-cluster-2")
 			return ok
-		}, 10*time.Second).Should(Equal(false))
+		}, 10*time.Second).Should(BeFalse())
 
 		persistObject(g, createAWSCluster("aws-cluster-3"))
 		t.Log("Ensuring newly created cluster is added to tracked clusters")

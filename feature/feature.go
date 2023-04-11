@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -65,6 +65,16 @@ const (
 
 	// BootstrapFormatIgnition will allow an user to enable alternate machine bootstrap format, viz. Ignition.
 	BootstrapFormatIgnition featuregate.Feature = "BootstrapFormatIgnition"
+
+	// ExternalResourceGC is used to enable the garbage collection of external resources like NLB/ALB on deletion
+	// owner: @richardcase
+	// alpha: v1.5
+	ExternalResourceGC featuregate.Feature = "ExternalResourceGC"
+
+	// AlternativeGCStrategy is used to enable garbage collection of external resources to be performed without resource group tagging API. It is usually needed in airgap env when tagging API is not available.
+	// owner: @wyike
+	// alpha: v2.0
+	AlternativeGCStrategy featuregate.Feature = "AlternativeGCStrategy"
 )
 
 func init() {
@@ -83,4 +93,6 @@ var defaultCAPAFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MachinePool:                   {Default: false, PreRelease: featuregate.Alpha},
 	AutoControllerIdentityCreator: {Default: true, PreRelease: featuregate.Alpha},
 	BootstrapFormatIgnition:       {Default: false, PreRelease: featuregate.Alpha},
+	ExternalResourceGC:            {Default: false, PreRelease: featuregate.Alpha},
+	AlternativeGCStrategy:         {Default: false, PreRelease: featuregate.Alpha},
 }

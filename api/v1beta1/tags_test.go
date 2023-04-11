@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
-func TestTags_Merge(t *testing.T) {
+func TestTagsMerge(t *testing.T) {
 	tests := []struct {
 		name     string
 		other    Tags
@@ -90,7 +90,7 @@ func TestTags_Merge(t *testing.T) {
 	}
 }
 
-func TestTags_Difference(t *testing.T) {
+func TestTagsDifference(t *testing.T) {
 	tests := []struct {
 		name     string
 		self     Tags
@@ -166,7 +166,7 @@ func TestTags_Difference(t *testing.T) {
 	}
 }
 
-func TestTags_Validate(t *testing.T) {
+func TestTagsValidate(t *testing.T) {
 	tests := []struct {
 		name     string
 		self     Tags
@@ -176,6 +176,13 @@ func TestTags_Validate(t *testing.T) {
 			name: "no errors",
 			self: Tags{
 				"validKey": "validValue",
+			},
+			expected: nil,
+		},
+		{
+			name: "no errors - spaces allowed",
+			self: Tags{
+				"validKey": "valid Value",
 			},
 			expected: nil,
 		},

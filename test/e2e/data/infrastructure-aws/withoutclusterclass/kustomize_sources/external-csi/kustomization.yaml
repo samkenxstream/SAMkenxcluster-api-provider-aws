@@ -1,0 +1,16 @@
+# internal ccm and external csi installed
+resources:
+  - ../intree-cloud-provider
+  - ../addons/csi/resources/csi-resource-set.yaml
+patchesStrategicMerge:
+  - ../addons/csi/patches/external-csi-provider.yaml
+configMapGenerator:
+  - name: aws-ebs-csi-driver-addon
+    files:
+      - ../addons/csi/data/aws-ebs-csi-external.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    type: generated
+  annotations:
+    note: generated

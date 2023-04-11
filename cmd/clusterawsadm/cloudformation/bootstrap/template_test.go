@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,11 +27,11 @@ import (
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/yaml"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	iamv1 "sigs.k8s.io/cluster-api-provider-aws/iam/api/v1beta1"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	iamv1 "sigs.k8s.io/cluster-api-provider-aws/v2/iam/api/v1beta1"
 )
 
-func Test_RenderCloudformation(t *testing.T) {
+func TestRenderCloudformation(t *testing.T) {
 	cases := []struct {
 		fixture  string
 		template func() Template
@@ -73,7 +73,7 @@ func Test_RenderCloudformation(t *testing.T) {
 			fixture: "customsuffix",
 			template: func() Template {
 				t := NewTemplate()
-				t.Spec.NameSuffix = pointer.StringPtr(".custom-suffix.com")
+				t.Spec.NameSuffix = pointer.String(".custom-suffix.com")
 				return t
 			},
 		},
@@ -197,7 +197,7 @@ func Test_RenderCloudformation(t *testing.T) {
 				dmp := diffmatchpatch.New()
 				diffs := dmp.DiffMain(string(tData), string(data), false)
 				out := dmp.DiffPrettyText(diffs)
-				t.Fatal(fmt.Sprintf("Differing output (%s):\n%s", c.fixture, out))
+				t.Fatalf(fmt.Sprintf("Differing output (%s):\n%s", c.fixture, out))
 			}
 		})
 	}

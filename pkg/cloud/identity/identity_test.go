@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,8 +30,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/pointer"
 
-	infrav1 "sigs.k8s.io/cluster-api-provider-aws/api/v1beta1"
-	"sigs.k8s.io/cluster-api-provider-aws/pkg/cloud/services/sts/mock_stsiface"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/sts/mock_stsiface"
 )
 
 func TestAWSStaticPrincipalTypeProvider(t *testing.T) {
@@ -107,7 +107,7 @@ func TestAWSStaticPrincipalTypeProvider(t *testing.T) {
 				m.AssumeRoleWithContext(gomock.Any(), &sts.AssumeRoleInput{
 					RoleArn:         aws.String(roleIdentity.Spec.RoleArn),
 					RoleSessionName: aws.String(roleIdentity.Spec.SessionName),
-					DurationSeconds: pointer.Int64Ptr(int64(roleIdentity.Spec.DurationSeconds)),
+					DurationSeconds: pointer.Int64(int64(roleIdentity.Spec.DurationSeconds)),
 				}).Return(&sts.AssumeRoleOutput{
 					Credentials: &sts.Credentials{
 						AccessKeyId:     aws.String("assumedAccessKeyId"),
@@ -132,7 +132,7 @@ func TestAWSStaticPrincipalTypeProvider(t *testing.T) {
 				m.AssumeRoleWithContext(gomock.Any(), &sts.AssumeRoleInput{
 					RoleArn:         aws.String(roleIdentity.Spec.RoleArn),
 					RoleSessionName: aws.String(roleIdentity.Spec.SessionName),
-					DurationSeconds: pointer.Int64Ptr(int64(roleIdentity.Spec.DurationSeconds)),
+					DurationSeconds: pointer.Int64(int64(roleIdentity.Spec.DurationSeconds)),
 				}).Return(&sts.AssumeRoleOutput{
 					Credentials: &sts.Credentials{
 						AccessKeyId:     aws.String("assumedAccessKeyId"),
@@ -145,7 +145,7 @@ func TestAWSStaticPrincipalTypeProvider(t *testing.T) {
 				m.AssumeRoleWithContext(gomock.Any(), &sts.AssumeRoleInput{
 					RoleArn:         aws.String(roleIdentity2.Spec.RoleArn),
 					RoleSessionName: aws.String(roleIdentity2.Spec.SessionName),
-					DurationSeconds: pointer.Int64Ptr(int64(roleIdentity2.Spec.DurationSeconds)),
+					DurationSeconds: pointer.Int64(int64(roleIdentity2.Spec.DurationSeconds)),
 				}).Return(&sts.AssumeRoleOutput{
 					Credentials: &sts.Credentials{
 						AccessKeyId:     aws.String("assumedAccessKeyId2"),
@@ -173,7 +173,7 @@ func TestAWSStaticPrincipalTypeProvider(t *testing.T) {
 				m.AssumeRoleWithContext(gomock.Any(), &sts.AssumeRoleInput{
 					RoleArn:         aws.String(roleIdentity.Spec.RoleArn),
 					RoleSessionName: aws.String(roleIdentity.Spec.SessionName),
-					DurationSeconds: pointer.Int64Ptr(int64(roleIdentity.Spec.DurationSeconds)),
+					DurationSeconds: pointer.Int64(int64(roleIdentity.Spec.DurationSeconds)),
 				}).Return(&sts.AssumeRoleOutput{}, errors.New("Not authorized to assume role"))
 			},
 			expectErr: true,
